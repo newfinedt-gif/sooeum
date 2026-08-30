@@ -1,4 +1,156 @@
-const URL='https://senrhkdnsrpcnjvigzfq.supabase.co';const KEY='sb_publishable_uvOL2lGthR-PNI9tlNoBjA_-8ieB4qx';const sb=supabase.createClient(URL,KEY);const $=s=>document.querySelector(s);const won=n=>new Intl.NumberFormat('ko-KR').format(Math.round(Number(n||0)))+'원';let state={session:null,academy:null,accounts:[],tab:'home',install:null};
+const URL='https://senrhkdnsrpcnjvigzfq.supabase.co';
+const KEY='sb_publishable_uvOL2lGthR-PNI9tlNoBjA_-8ieB4qx';
+
+// Academy Finance v5: 외부 Supabase JS CDN 없이 REST/Auth API를 직접 사용합니다.
+const sb=(()=>{
+  const STORAGE='academy_finance_session_v1';
+  let listeners=[];
+  let session=null;
+
+  function loadStored(){
+    try{
+      const raw=localStorage.getItem(STORAGE);
+      if(!raw)return null;
+      const s=JSON.parse(raw);
+      if(!s?.access_token)return null;
+      return s;
+    }catch(_){ return null; }
+  }
+  function saveStored(s){
+    session=s||null;
+    try{
+      if(s)localStorage.setItem(STORAGE,JSON.stringify(s));
+      else localStorage.removeItem(STORAGE);
+    }catch(_){}
+  }
+  session=loadStored();
+
+  function emit(event,s){
+    listeners.forEach(fn=>{try{fn(event,s)}catch(e){console.error(e)}});
+  }
+  function headers(extra={}){
+    const h={
+      'apikey':KEY,
+      'Content-Type':'application/json',
+      ...extra
+    };
+    if(session?.access_token)h['Authorization']='Bearer '+session.access_token;
+    else h['Authorization']='Bearer '+KEY;
+    return h;
+  }
+  async function parseResponse(r){
+    let body=null;
+    const text=await r.text();
+    if(text){
+      try{body=JSON.parse(text)}catch(_){body=text}
+    }
+    if(!r.ok){
+      const msg=body?.msg||body?.message||body?.error_description||body?.error||`HTTP ${r.status}`;
+      return {data:null,error:{message:String(msg),status:r.status,details:body}};
+    }
+    return {data:body,error:null};
+  }
+  async function authRequest(path,body,method='POST'){
+    try{
+      const r=await fetch(URL+'/auth/v1/'+path,{
+        method,
+        headers:{'apikey':KEY,'Content-Type':'application/json',...(session?.access_token?{'Authorization':'Bearer '+session.access_token}:{})},
+        body:body===undefined?undefined:JSON.stringify(body)
+      });
+      return await parseResponse(r);
+    }catch(e){return {data:null,error:{message:e.message||String(e)}}}
+  }
+
+  class Query{
+    constructor(table){
+      this.table=table; this.params=new URLSearchParams(); this._single=false;
+    }
+    select(cols='*'){this.params.set('select',cols);return this}
+    eq(col,val){this.params.set(col,'eq.'+val);return this}
+    gte(col,val){this.params.set(col,'gte.'+val);return this}
+    lte(col,val){this.params.set(col,'lte.'+val);return this}
+    order(col,opt={}){
+      this.params.set('order',`${col}.${opt.ascending===false?'desc':'asc'}`);
+      return this
+    }
+    limit(n){this.params.set('limit',String(n));return this}
+    maybeSingle(){this._single=true;return this}
+    async execute(){
+      try{
+        const r=await fetch(URL+'/rest/v1/'+encodeURIComponent(this.table)+'?'+this.params.toString(),{
+          headers:headers({'Accept':'application/json'})
+        });
+        const out=await parseResponse(r);
+        if(out.error)return out;
+        if(this._single){
+          const arr=Array.isArray(out.data)?out.data:[out.data];
+          return {data:arr[0]||null,error:null};
+        }
+        return out;
+      }catch(e){return {data:null,error:{message:e.message||String(e)}}}
+    }
+    then(resolve,reject){return this.execute().then(resolve,reject)}
+  }
+
+  const auth={
+    async signInWithPassword({email,password}){
+      const out=await authRequest('token?grant_type=password',{email,password});
+      if(out.error)return out;
+      const d=out.data||{};
+      const s={
+        access_token:d.access_token,
+        refresh_token:d.refresh_token,
+        expires_in:d.expires_in,
+        token_type:d.token_type||'bearer',
+        user:d.user
+      };
+      saveStored(s); emit('SIGNED_IN',s);
+      return {data:{session:s,user:d.user},error:null};
+    },
+    async signUp({email,password}){
+      const out=await authRequest('signup',{email,password});
+      if(out.error)return out;
+      const d=out.data||{};
+      let s=null;
+      if(d.access_token){
+        s={access_token:d.access_token,refresh_token:d.refresh_token,expires_in:d.expires_in,token_type:d.token_type||'bearer',user:d.user};
+        saveStored(s); emit('SIGNED_IN',s);
+      }
+      return {data:{session:s,user:d.user||d},error:null};
+    },
+    async signOut(){
+      try{
+        if(session?.access_token)await authRequest('logout',undefined,'POST');
+      }catch(_){}
+      saveStored(null); emit('SIGNED_OUT',null);
+      return {error:null};
+    },
+    async getSession(){
+      session=loadStored();
+      return {data:{session},error:null};
+    },
+    onAuthStateChange(fn){
+      listeners.push(fn);
+      return {data:{subscription:{unsubscribe(){listeners=listeners.filter(x=>x!==fn)}}}};
+    }
+  };
+
+  return {
+    auth,
+    from(table){return new Query(table)},
+    async rpc(name,args={}){
+      try{
+        const r=await fetch(URL+'/rest/v1/rpc/'+encodeURIComponent(name),{
+          method:'POST',
+          headers:headers({'Prefer':'return=representation'}),
+          body:JSON.stringify(args)
+        });
+        return await parseResponse(r);
+      }catch(e){return {data:null,error:{message:e.message||String(e)}}}
+    }
+  };
+})();
+const $=s=>document.querySelector(s);const won=n=>new Intl.NumberFormat('ko-KR').format(Math.round(Number(n||0)))+'원';let state={session:null,academy:null,accounts:[],tab:'home',install:null};
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.install=e;render()});if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');
 function shell(body){return `<div class="wrap"><div class="top"><div><div class="brand">⬡ ${state.academy?.name||'Academy Finance'}</div><div class="muted">학원 재무를 한눈에</div></div><button class="btn" onclick="logout()">로그아웃</button></div>${body}</div><div class="nav"><div class="nav-inner">${[['home','홈'],['tx','거래'],['add','입력'],['fs','재무제표'],['settings','설정']].map(([k,v])=>`<button class="${state.tab===k?'on':''}" onclick="go('${k}')">${v}</button>`).join('')}</div></div>`}
 function authView(){return `<div class="auth"><span class="pill">ACADEMY FINANCE</span><h1>원장님을 위한<br>쉬운 재무제표</h1><p class="muted">이메일로 가입한 뒤 학원을 만들면 바로 시작할 수 있어요.</p><div class="card"><div class="field"><label>이메일</label><input id="email" type="email" placeholder="name@example.com"></div><div class="field"><label>비밀번호 (6자 이상)</label><input id="pw" type="password" minlength="6"></div><button class="btn primary" onclick="login()">로그인</button><button class="btn" style="width:100%;margin-top:8px" onclick="signup()">처음이에요 · 회원가입</button><p id="msg" class="muted"></p></div></div>`}
