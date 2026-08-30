@@ -28,6 +28,54 @@ const sb=(()=>{
   function emit(event,s){
     listeners.forEach(fn=>{try{fn(event,s)}catch(e){console.error(e)}});
   }
+  let refreshPromise=null;
+  async function refreshSession(){
+    if(!session?.refresh_token)return {data:null,error:{message:'로그인 정보가 만료되었습니다.'}};
+    if(refreshPromise)return refreshPromise;
+    refreshPromise=(async()=>{
+      try{
+        const r=await fetch(URL+'/auth/v1/token?grant_type=refresh_token',{
+          method:'POST',
+          headers:{'apikey':KEY,'Content-Type':'application/json'},
+          body:JSON.stringify({refresh_token:session.refresh_token})
+        });
+        const out=await parseResponse(r);
+        if(out.error){saveStored(null);emit('SIGNED_OUT',null);return out}
+        const d=out.data||{};
+        const s={
+          access_token:d.access_token,
+          refresh_token:d.refresh_token||session.refresh_token,
+          expires_in:d.expires_in,
+          token_type:d.token_type||'bearer',
+          user:d.user||session.user,
+          expires_at:Math.floor(Date.now()/1000)+Number(d.expires_in||3600)
+        };
+        saveStored(s); emit('TOKEN_REFRESHED',s);
+        return {data:{session:s},error:null};
+      }catch(e){return {data:null,error:{message:e.message||String(e)}}}
+      finally{refreshPromise=null}
+    })();
+    return refreshPromise;
+  }
+  async function ensureFreshSession(){
+    if(!session?.access_token)return {error:null};
+    const exp=Number(session.expires_at||0);
+    if(!exp || exp-Math.floor(Date.now()/1000)<90)return await refreshSession();
+    return {error:null};
+  }
+  async function apiFetch(url,options={}){
+    await ensureFreshSession();
+    options.headers={...(options.headers||{}),...headers(options.headers||{})};
+    let r=await fetch(url,options);
+    if(r.status===401 && session?.refresh_token){
+      const rr=await refreshSession();
+      if(!rr.error){
+        options.headers={...(options.headers||{}),...headers(options.headers||{})};
+        r=await fetch(url,options);
+      }
+    }
+    return r;
+  }
   function headers(extra={}){
     const h={
       'apikey':KEY,
@@ -77,8 +125,8 @@ const sb=(()=>{
     maybeSingle(){this._single=true;return this}
     async execute(){
       try{
-        const r=await fetch(URL+'/rest/v1/'+encodeURIComponent(this.table)+'?'+this.params.toString(),{
-          headers:headers({'Accept':'application/json'})
+        const r=await apiFetch(URL+'/rest/v1/'+encodeURIComponent(this.table)+'?'+this.params.toString(),{
+          headers:{'Accept':'application/json'}
         });
         const out=await parseResponse(r);
         if(out.error)return out;
@@ -102,7 +150,8 @@ const sb=(()=>{
         refresh_token:d.refresh_token,
         expires_in:d.expires_in,
         token_type:d.token_type||'bearer',
-        user:d.user
+        user:d.user,
+        expires_at:Math.floor(Date.now()/1000)+Number(d.expires_in||3600)
       };
       saveStored(s); emit('SIGNED_IN',s);
       return {data:{session:s,user:d.user},error:null};
@@ -134,7 +183,8 @@ const sb=(()=>{
             refresh_token:d.refresh_token,
             expires_in:d.expires_in,
             token_type:d.token_type||'bearer',
-            user:d.user
+            user:d.user,
+            expires_at:Math.floor(Date.now()/1000)+Number(d.expires_in||3600)
           };
           saveStored(s);
           emit('SIGNED_IN',s);
@@ -153,6 +203,10 @@ const sb=(()=>{
     },
     async getSession(){
       session=loadStored();
+      if(session?.access_token){
+        const r=await ensureFreshSession();
+        if(r?.error)session=null;
+      }
       return {data:{session},error:null};
     },
     onAuthStateChange(fn){
@@ -166,9 +220,9 @@ const sb=(()=>{
     from(table){return new Query(table)},
     async rpc(name,args={}){
       try{
-        const r=await fetch(URL+'/rest/v1/rpc/'+encodeURIComponent(name),{
+        const r=await apiFetch(URL+'/rest/v1/rpc/'+encodeURIComponent(name),{
           method:'POST',
-          headers:headers({'Prefer':'return=representation'}),
+          headers:{'Prefer':'return=representation'},
           body:JSON.stringify(args)
         });
         return await parseResponse(r);
@@ -182,13 +236,13 @@ const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"
 let state={session:null,academy:null,accounts:[],tab:'home',install:null,month:new Date().toISOString().slice(0,7)};
 
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.install=e;render()});
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=94').catch(()=>{});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=941').catch(()=>{});
 
 function shell(body){
   const nav=[['home','⌂','홈'],['tx','⇄','거래'],['add','＋','입력'],['fs','▤','재무제표'],['funds','▣','자금'],['report','▧','보고서'],['settings','⚙','설정']];
   const side=nav.map(([k,ic,v])=>`<button class="side-link ${state.tab===k?'on':''}" onclick="go('${k}')"><span>${ic}</span>${v}</button>`).join('');
   const bottom=nav.map(([k,ic,v])=>`<button class="${state.tab===k?'on':''}" onclick="go('${k}')"><span>${ic}</span>${v}</button>`).join('');
-  return `<div class="app-shell"><aside class="sidebar"><div class="logo-box"><img src="./logo-transparent.png?v=94" alt="수이음 로고"><div class="side-academy">${esc(state.academy?.name||'수이음학원')}</div><div class="side-sub">학원 재무를 한눈에</div></div><nav class="side-nav">${side}</nav><button class="side-logout" onclick="logout()">↪ 로그아웃</button></aside><main class="main"><div class="top"><div class="mobile-brand"><img src="./logo-transparent.png?v=94" alt="수이음"><div><div class="brand">${esc(state.academy?.name||'수이음학원')}</div><div class="muted">학원 재무를 한눈에</div></div></div><button class="btn logout" onclick="logout()">로그아웃</button></div><div class="wrap">${body}</div></main></div><div class="nav"><div class="nav-inner">${bottom}</div></div>`
+  return `<div class="app-shell"><aside class="sidebar"><div class="logo-box"><img src="./logo-transparent.png?v=941" alt="수이음 로고"><div class="side-academy">${esc(state.academy?.name||'수이음학원')}</div><div class="side-sub">학원 재무를 한눈에</div></div><nav class="side-nav">${side}</nav><button class="side-logout" onclick="logout()">↪ 로그아웃</button></aside><main class="main"><div class="top"><div class="mobile-brand"><img src="./logo-transparent.png?v=941" alt="수이음"><div><div class="brand">${esc(state.academy?.name||'수이음학원')}</div><div class="muted">학원 재무를 한눈에</div></div></div><button class="btn logout" onclick="logout()">로그아웃</button></div><div class="wrap">${body}</div></main></div><div class="nav"><div class="nav-inner">${bottom}</div></div>`
 }
 function authView(){return `<div class="auth"><span class="pill">ACADEMY FINANCE</span><h1>원장님을 위한<br>쉬운 재무제표</h1><p class="muted">이메일로 가입한 뒤 학원을 만들면 바로 시작할 수 있어요.</p><div class="card"><div class="field"><label>이메일</label><input id="email" type="email" placeholder="name@example.com"></div><div class="field"><label>비밀번호 (6자 이상)</label><input id="pw" type="password" minlength="6"></div><button class="btn primary" onclick="login()">로그인</button><button class="btn" style="width:100%;margin-top:8px" onclick="signup()">처음이에요 · 회원가입</button><p id="msg" class="muted"></p></div></div>`}
 async function login(){const{error}=await sb.auth.signInWithPassword({email:$('#email').value,password:$('#pw').value});$('#msg').textContent=error?error.message:'로그인 중…'}
@@ -363,9 +417,56 @@ async function report(){
   const total=(tx||[]).length,ev=(tx||[]).filter(t=>t.evidence_name).length, displayedEquity=Number(x.equity||0)+Number(x.net_income||0), margin=Number(x.revenue||0)?Math.round(Number(x.net_income||0)/Number(x.revenue||0)*1000)/10:0;
   const cash=accByCode('101'),bank=accByCode('102'),recv=accByCode('103'),pay=accByCode('203'),cats=expenseCategoryData(lines).slice(0,5);
   const cp={};(tx||[]).filter(t=>t.counterparty).forEach(t=>cp[t.counterparty]=(cp[t.counterparty]||0)+1);const topCp=Object.entries(cp).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  $('#app').innerHTML=shell(`${monthBar()}<div class="report-toolbar"><div><h2>${monthTitle()} 월간 재무 보고서</h2><div class="muted">${esc(state.academy.name)} · 경영관리용</div></div><button class="btn primary" onclick="window.print()">PDF로 저장 / 인쇄</button></div><article class="print-report"><div class="report-brand"><img src="./logo-transparent.png?v=94"><div><h1>${esc(state.academy.name)}</h1><p>${monthTitle()} 월간 재무 보고서</p></div></div><div class="report-kpis"><div><span>매출</span><b>${won(x.revenue)}</b></div><div><span>비용</span><b>${won(x.expense)}</b></div><div><span>순이익</span><b>${won(x.net_income)}</b></div><div><span>자산</span><b>${won(x.assets)}</b></div><div><span>순이익률</span><b>${margin}%</b></div></div><h3>재무상태 요약</h3><div class="report-table"><div><span>자산</span><b>${won(x.assets)}</b></div><div><span>부채</span><b>${won(x.liabilities)}</b></div><div><span>자본(당기순이익 포함)</span><b>${won(displayedEquity)}</b></div></div><h3>자금 현황</h3><div class="report-table"><div><span>보통예금</span><b>${won(bank?b[bank.id]:0)}</b></div><div><span>현금</span><b>${won(cash?b[cash.id]:0)}</b></div><div><span>카드미수금</span><b>${won(recv?b[recv.id]:0)}</b></div><div><span>카드미지급금</span><b>${won(pay?b[pay.id]:0)}</b></div></div><h3>지출 카테고리 TOP 5</h3>${categoryBars(cats)}<h3>자주 기록한 거래처</h3><div class="report-table">${topCp.length?topCp.map(([n,c])=>`<div><span>${esc(n)}</span><b>${c}건</b></div>`).join(''):'<div><span>거래처 기록</span><b>없음</b></div>'}</div><h3>거래 및 증빙</h3><div class="report-table"><div><span>전체 거래</span><b>${total}건</b></div><div><span>증빙 첨부</span><b>${ev}건</b></div><div><span>증빙 미첨부</span><b>${Math.max(0,total-ev)}건</b></div><div><span>증빙 첨부율</span><b>${total?Math.round(ev/total*100):0}%</b></div></div><p class="report-note">※ 본 보고서는 학원 내부 경영관리용입니다. 세무 신고 및 외부 제출용 공식 재무제표는 전문가 검토가 필요합니다.</p></article>`)
+  $('#app').innerHTML=shell(`${monthBar()}<div class="report-toolbar"><div><h2>${monthTitle()} 월간 재무 보고서</h2><div class="muted">${esc(state.academy.name)} · 경영관리용</div></div><button class="btn primary" onclick="window.print()">PDF로 저장 / 인쇄</button></div><article class="print-report"><div class="report-brand"><img src="./logo-transparent.png?v=941"><div><h1>${esc(state.academy.name)}</h1><p>${monthTitle()} 월간 재무 보고서</p></div></div><div class="report-kpis"><div><span>매출</span><b>${won(x.revenue)}</b></div><div><span>비용</span><b>${won(x.expense)}</b></div><div><span>순이익</span><b>${won(x.net_income)}</b></div><div><span>자산</span><b>${won(x.assets)}</b></div><div><span>순이익률</span><b>${margin}%</b></div></div><h3>재무상태 요약</h3><div class="report-table"><div><span>자산</span><b>${won(x.assets)}</b></div><div><span>부채</span><b>${won(x.liabilities)}</b></div><div><span>자본(당기순이익 포함)</span><b>${won(displayedEquity)}</b></div></div><h3>자금 현황</h3><div class="report-table"><div><span>보통예금</span><b>${won(bank?b[bank.id]:0)}</b></div><div><span>현금</span><b>${won(cash?b[cash.id]:0)}</b></div><div><span>카드미수금</span><b>${won(recv?b[recv.id]:0)}</b></div><div><span>카드미지급금</span><b>${won(pay?b[pay.id]:0)}</b></div></div><h3>지출 카테고리 TOP 5</h3>${categoryBars(cats)}<h3>자주 기록한 거래처</h3><div class="report-table">${topCp.length?topCp.map(([n,c])=>`<div><span>${esc(n)}</span><b>${c}건</b></div>`).join(''):'<div><span>거래처 기록</span><b>없음</b></div>'}</div><h3>거래 및 증빙</h3><div class="report-table"><div><span>전체 거래</span><b>${total}건</b></div><div><span>증빙 첨부</span><b>${ev}건</b></div><div><span>증빙 미첨부</span><b>${Math.max(0,total-ev)}건</b></div><div><span>증빙 첨부율</span><b>${total?Math.round(ev/total*100):0}%</b></div></div><p class="report-note">※ 본 보고서는 학원 내부 경영관리용입니다. 세무 신고 및 외부 제출용 공식 재무제표는 전문가 검토가 필요합니다.</p></article>`)
 }
-function settings(){const email=state.session.user.email;$('#app').innerHTML=shell(`<div class="section-title">설정</div><div class="card"><div class="row"><span>학원</span><b>${state.academy.name}</b></div><div class="row"><span>로그인</span><b>${email}</b></div><div class="row"><span>통화</span><b>KRW (원)</b></div><div class="row"><span>버전</span><b>v9.4</b></div></div><div class="card"><h3>기본 계정과목</h3>${state.accounts.map(a=>`<div class="row"><span>${a.code} · ${a.name}</span><span class="muted">${a.type}</span></div>`).join('')}</div><div class="notice">증빙사진은 현재 MVP 방식으로 압축해 거래에 저장합니다. 대량 사용 전에는 전용 파일 저장소로 이전하는 것을 권장합니다.</div><div class="notice">이 앱은 경영관리용입니다. 세무 신고·외부감사 목적의 공식 재무제표는 세무/회계 전문가의 검토가 필요합니다.</div>`)}
+function settings(){
+  const email=state.session.user.email;
+  $('#app').innerHTML=shell(`<div class="section-title">설정</div>
+  <div class="card"><div class="row"><span>학원</span><b>${state.academy.name}</b></div><div class="row"><span>로그인</span><b>${email}</b></div><div class="row"><span>통화</span><b>KRW (원)</b></div><div class="row"><span>버전</span><b>v9.4.1 실사용 안정화</b></div></div>
+  <div class="card"><h3>실사용 시작 도구</h3><p class="muted">기존 학원 장부를 오늘부터 시작한다면 실제 통장·현금·카드 잔액을 한 번 입력하세요.</p>
+    <button class="btn primary" onclick="openingBalanceView()">초기잔액 입력</button>
+    <button class="btn" style="margin-left:8px" onclick="exportBackupCsv()">CSV 백업 다운로드</button>
+  </div>
+  <div class="card"><h3>기본 계정과목</h3>${state.accounts.map(a=>`<div class="row"><span>${a.code} · ${a.name}</span><span class="muted">${a.type}</span></div>`).join('')}</div>
+  <div class="notice">로그인 세션은 자동 갱신되도록 안정화했습니다. 장시간 켜두어도 만료 직전에 자동으로 로그인 상태를 갱신합니다.</div>
+  <div class="notice">증빙사진은 현재 압축해 거래에 저장합니다. 일반적인 소규모 사용에는 가능하지만 증빙이 대량으로 쌓이면 전용 파일 저장소로 이전하는 것이 좋습니다.</div>
+  <div class="notice">이 앱은 경영관리용입니다. 세무 신고·외부감사 목적의 공식 재무제표는 세무/회계 전문가의 검토가 필요합니다.</div>`)
+}
+function openingBalanceView(){
+  const today=new Date().toISOString().slice(0,10);
+  $('#app').innerHTML=shell(`<div class="section-title">초기잔액 입력</div><div class="card form">
+  <div class="notice">실제 사용 시작 시점의 잔액을 입력합니다. 한 번 저장하면 일반 거래처럼 수정·삭제할 수 있습니다.</div>
+  <div class="field"><label>기준일</label><input id="obDate" type="date" value="${today}"></div>
+  <div class="field"><label>보통예금 잔액</label><input id="obBank" type="number" min="0" value="0"></div>
+  <div class="field"><label>현금 잔액</label><input id="obCash" type="number" min="0" value="0"></div>
+  <div class="field"><label>카드미수금</label><input id="obRecv" type="number" min="0" value="0"></div>
+  <div class="field"><label>카드미지급금</label><input id="obPay" type="number" min="0" value="0"></div>
+  <button class="btn primary" style="width:100%" onclick="saveOpeningBalance()">초기잔액 저장</button><button class="btn" style="width:100%;margin-top:8px" onclick="go('settings')">취소</button><div id="msg" class="msg"></div></div>`)
+}
+async function saveOpeningBalance(){
+  const vals={bank:Number($('#obBank').value||0),cash:Number($('#obCash').value||0),recv:Number($('#obRecv').value||0),pay:Number($('#obPay').value||0)};
+  if(Object.values(vals).some(v=>v<0||!Number.isFinite(v))){$('#msg').textContent='0 이상의 금액만 입력해주세요.';return}
+  const assets=vals.bank+vals.cash+vals.recv, liabilities=vals.pay;
+  if(assets===0&&liabilities===0){$('#msg').textContent='입력할 잔액이 없습니다.';return}
+  const lines=[], add=(code,debit,credit)=>{const a=accByCode(code);if(a&&(debit||credit))lines.push({account_id:a.id,debit,credit})};
+  add('102',vals.bank,0); add('101',vals.cash,0); add('103',vals.recv,0); add('203',0,vals.pay);
+  const diff=assets-liabilities;
+  if(diff>0)add('301',0,diff); else if(diff<0)add('301',-diff,0);
+  const{data,error}=await sb.rpc('post_journal',{p_academy:state.academy.id,p_date:$('#obDate').value,p_description:'초기잔액 설정',p_lines:lines});
+  if(error){$('#msg').textContent=error.message;return}
+  $('#msg').textContent='초기잔액이 저장되었습니다.';
+  setTimeout(()=>go('home'),500)
+}
+function csvCell(v){const s=String(v??'');return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
+async function exportBackupCsv(){
+  const{data,error}=await sb.from('transactions').select('id,transaction_date,description,counterparty,memo,evidence_name,transaction_lines(debit,credit,accounts(code,name,type))').eq('academy_id',state.academy.id).order('transaction_date',{ascending:true}).limit(5000);
+  if(error){alert(error.message);return}
+  const rows=[['날짜','거래내용','거래처','메모','계정코드','계정과목','유형','차변','대변','증빙']];
+  (data||[]).forEach(t=>(t.transaction_lines||[]).forEach(l=>rows.push([t.transaction_date,t.description,t.counterparty||'',t.memo||'',l.accounts?.code||'',l.accounts?.name||'',l.accounts?.type||'',l.debit||0,l.credit||0,t.evidence_name||''])));
+  const csv='\ufeff'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=`${state.academy.name}_장부백업_${new Date().toISOString().slice(0,10)}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+}
 async function installApp(){if(state.install){await state.install.prompt();state.install=null}}
 async function go(t){state.tab=t;if(t==='home')await home();else if(t==='tx')await transactions();else if(t==='add')addView();else if(t==='fs')await statements();else if(t==='funds')await funds();else if(t==='report')await report();else settings()}
 async function render(){if(!state.session){$('#app').innerHTML=authView();return}if(!state.academy){$('#app').innerHTML=onboarding();return}await go(state.tab)}
