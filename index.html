@@ -9,22 +9,32 @@
   <title>Academy Finance</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="./styles.css?v=6">
 </head>
 <body>
   <div id="app">
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;font-family:system-ui,sans-serif;color:#22324a">
-      <div><h2 style="margin:0 0 10px">Academy Finance</h2><div style="font-size:14px;color:#54708f">앱을 불러오는 중입니다…</div></div>
+      <div>
+        <h2 style="margin:0 0 10px">Academy Finance</h2>
+        <div style="font-size:14px;color:#54708f">앱을 불러오는 중입니다…</div>
+      </div>
     </div>
   </div>
-  <script src="./app.js?v=5"></script>
+
+  <script src="./app.js?v=6"></script>
   <script>
     setTimeout(function(){
       var a=document.getElementById('app');
       if(a && a.textContent.indexOf('앱을 불러오는 중')>=0){
-        a.innerHTML='<div style="max-width:520px;margin:120px auto;padding:24px;font-family:system-ui,sans-serif"><h2>앱 실행을 확인해주세요</h2><p>app.js가 실행되지 않았습니다. 페이지를 새로고침해주세요.</p></div>';
+        a.innerHTML='<div style="max-width:520px;margin:120px auto;padding:24px;font-family:system-ui,sans-serif"><h2>앱 실행을 확인해주세요</h2><p>app.js v6가 실행되지 않았습니다. 페이지를 새로고침해주세요.</p></div>';
       }
     },5000);
+
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', function(){
+        navigator.serviceWorker.register('./sw.js?v=6').catch(console.error);
+      });
+    }
   </script>
 </body>
 </html>
