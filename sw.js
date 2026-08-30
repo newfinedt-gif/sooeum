@@ -1,9 +1,9 @@
-const CACHE='academy-finance-v6';
+const CACHE='academy-finance-v7';
 const ASSETS=[
   './',
-  './index.html?v=6',
-  './app.js?v=6',
-  './styles.css?v=6',
+  './index.html?v=7',
+  './app.js?v=7',
+  './styles.css?v=7',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png'
