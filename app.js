@@ -17,4 +17,61 @@ async function statements(){const x=await summary();const[s,e]=monthRange();cons
 function settings(){const email=state.session.user.email;$('#app').innerHTML=shell(`<div class="section-title">설정</div><div class="card"><div class="row"><span>학원</span><b>${state.academy.name}</b></div><div class="row"><span>로그인</span><b>${email}</b></div><div class="row"><span>통화</span><b>KRW (원)</b></div></div><div class="card"><h3>기본 계정과목</h3>${state.accounts.map(a=>`<div class="row"><span>${a.code} · ${a.name}</span><span class="muted">${a.type}</span></div>`).join('')}</div><div class="notice">이 앱은 경영관리용입니다. 세무 신고·외부감사 목적의 공식 재무제표는 세무/회계 전문가의 검토가 필요합니다.</div>`)}
 async function installApp(){if(state.install){await state.install.prompt();state.install=null}}async function go(t){state.tab=t;if(t==='home')await home();else if(t==='tx')await transactions();else if(t==='add')addView();else if(t==='fs')await statements();else settings()}
 async function render(){if(!state.session){$('#app').innerHTML=authView();return}if(!state.academy){$('#app').innerHTML=onboarding();return}await go(state.tab)}
-sb.auth.onAuthStateChange(async(_,session)=>{state.session=session;if(session)await loadAcademy();render()});(async()=>{const{data:{session}}=await sb.auth.getSession();state.session=session;if(session)await loadAcademy();render()})();
+
+// v4 안정화: 먼저 화면을 즉시 표시하고, 인증 복원은 뒤에서 처리합니다.
+window.addEventListener('error', e => {
+  console.error('Academy Finance error:', e.error || e.message);
+  const app = document.querySelector('#app');
+  if (app && app.textContent.includes('앱을 불러오는 중')) {
+    app.innerHTML = `<div class="auth"><h1>앱 실행 오류</h1><div class="card"><p class="muted">${String(e.message || '알 수 없는 오류')}</p><button class="btn primary" onclick="location.reload()">다시 불러오기</button></div></div>`;
+  }
+});
+
+window.addEventListener('unhandledrejection', e => {
+  console.error('Academy Finance promise error:', e.reason);
+});
+
+async function restoreSession(){
+  try{
+    // 로그아웃 상태에서도 첫 화면이 즉시 보이게 함
+    if(!state.session) render();
+
+    const result = await Promise.race([
+      sb.auth.getSession(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('로그인 상태 확인 시간이 초과되었습니다.')), 8000))
+    ]);
+
+    const session = result?.data?.session || null;
+    state.session = session;
+
+    if(session){
+      await loadAcademy();
+    }
+    await render();
+  }catch(err){
+    console.error(err);
+    state.session = null;
+    document.querySelector('#app').innerHTML =
+      authView() +
+      `<div style="max-width:520px;margin:12px auto;padding:0 16px"><div class="notice">연결 확인 중 문제가 있었습니다: ${String(err.message || err)}</div></div>`;
+  }
+}
+
+// auth 콜백 안에서 Supabase 쿼리를 직접 await하지 않아 교착 가능성을 피함
+sb.auth.onAuthStateChange((_, session) => {
+  setTimeout(async () => {
+    try{
+      state.session = session;
+      state.academy = null;
+      state.accounts = [];
+      if(session) await loadAcademy();
+      await render();
+    }catch(err){
+      console.error('auth state render error', err);
+    }
+  }, 0);
+});
+
+render();
+restoreSession();
+
