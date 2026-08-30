@@ -76,3 +76,11 @@ html,body{background:#f8f6fb}
   .tx-tools{grid-template-columns:1fr 1fr}.search-box{grid-column:1/-1}
   .detail-head{align-items:start;flex-direction:column}.detail-balance{text-align:left}
 }
+
+/* v9.4 실사용 기능 — v9.2/v9.3 디자인 유지 */
+.field textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font:inherit;background:#fff;box-sizing:border-box}
+.trend .gridline{stroke:#e8e3ef;stroke-width:1}.trend .ylabel{fill:#8a8197;font-size:11px}
+.category-bars{display:grid;gap:13px;margin:14px 0}.cat-row{display:grid;gap:6px}.cat-label{display:flex;justify-content:space-between;gap:10px;font-size:14px}.cat-track{height:8px;background:#f0e8f7;border-radius:999px;overflow:hidden}.cat-track i{display:block;height:100%;background:var(--sooeum);border-radius:999px}.empty.compact{padding:30px 10px}
+.evidence-alert{width:100%;border:1px solid #e4c6f2;background:#faf4fd;color:#5e176e;border-radius:14px;padding:13px 16px;display:flex;justify-content:space-between;gap:12px;margin:0 0 16px;font:inherit;cursor:pointer}.evidence-alert b{color:var(--sooeum)}
+.mini-stat{display:flex;align-items:end;gap:8px;margin:18px 0}.mini-stat b{font-size:30px;color:var(--sooeum)}.mini-stat span{color:var(--muted);font-size:13px;margin-bottom:4px}
+@media(max-width:700px){.evidence-alert{align-items:flex-start;flex-direction:column}}
