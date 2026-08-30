@@ -3,3 +3,25 @@
 @media(max-width:899px){.dash-grid,.dash-grid.three{grid-template-columns:1fr}.summary-card{display:block}.summary-metrics{margin-top:18px}.summary-metrics div{padding:8px;border-left:0;border-top:1px solid #eef2f7}.summary-card strong{font-size:34px}.report-kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:520px){.wrap,.top{padding-left:16px;padding-right:16px}.summary-metrics{grid-template-columns:repeat(2,1fr)}.grid.four{grid-template-columns:repeat(2,1fr)}.report-toolbar{align-items:flex-start;gap:12px}.report-toolbar h2{font-size:20px}.report-toolbar .btn{font-size:12px}.print-report{padding:20px}.report-kpis{grid-template-columns:1fr 1fr}.auth{margin-top:25px}}
 @media print{body{background:#fff}.sidebar,.top,.nav,.monthbar,.report-toolbar{display:none!important}.app-shell{display:block}.wrap{max-width:none;padding:0}.print-report{border:0;box-shadow:none;padding:0}.print-report h1{font-size:24px}.report-note{margin-top:18px}@page{size:A4;margin:14mm}}
+
+/* v9.1 — 수이음 로고 원본 컬러(#7000A3)와 UI 색상 통일 */
+:root{--sooeum:#7000a3;--sooeum-dark:#54007c;--sooeum-soft:#f4ecfa;--sooeum-line:#e9dcf2}
+html,body{background:#f8f6fb}
+.primary{background:var(--sooeum)!important}
+.purple,.text-link,.nav button.on{color:var(--sooeum)!important}
+.progress i{background:var(--sooeum)}
+.pill{background:var(--sooeum-soft);color:var(--sooeum)}
+.report-brand{border-bottom-color:var(--sooeum)}
+.report-kpis div{background:#faf6fd}
+.trend .net{stroke:var(--sooeum)}
+.monthbar input{border-color:var(--sooeum);background:var(--sooeum);color:#fff;box-shadow:0 4px 14px rgba(112,0,163,.16)}
+.monthbar input::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.95}
+.monthbar .mini{background:var(--sooeum);color:#fff;box-shadow:0 4px 14px rgba(112,0,163,.13)}
+.card,.summary-card{border-color:#ece5f1;box-shadow:0 8px 28px rgba(76,0,110,.055)}
+@media(min-width:900px){
+  .sidebar{background:var(--sooeum);padding:22px 16px}
+  .logo-box{padding:0 0 24px;text-align:center}
+  .logo-box img{width:172px;height:auto;max-height:none;object-fit:contain;border-radius:0;display:block;margin:0 auto;mix-blend-mode:normal}
+  .side-link.on{background:rgba(255,255,255,.17)}
+  .side-link:hover,.side-logout:hover{background:rgba(255,255,255,.10)}
+}
