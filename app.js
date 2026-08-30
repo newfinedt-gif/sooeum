@@ -108,15 +108,41 @@ const sb=(()=>{
       return {data:{session:s,user:d.user},error:null};
     },
     async signUp({email,password}){
-      const out=await authRequest('signup',{email,password});
-      if(out.error)return out;
-      const d=out.data||{};
-      let s=null;
-      if(d.access_token){
-        s={access_token:d.access_token,refresh_token:d.refresh_token,expires_in:d.expires_in,token_type:d.token_type||'bearer',user:d.user};
-        saveStored(s); emit('SIGNED_IN',s);
+      const cleanEmail=String(email||'').trim();
+      const cleanPassword=String(password||'');
+      if(!cleanEmail)return {data:null,error:{message:'이메일을 입력해주세요.'}};
+      if(cleanPassword.length<6)return {data:null,error:{message:'비밀번호는 6자 이상 입력해주세요.'}};
+
+      try{
+        const r=await fetch(URL+'/auth/v1/signup',{
+          method:'POST',
+          headers:{
+            'apikey':KEY,
+            'Authorization':'Bearer '+KEY,
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({email:cleanEmail,password:cleanPassword})
+        });
+        const out=await parseResponse(r);
+        if(out.error)return out;
+
+        const d=out.data||{};
+        let s=null;
+        if(d.access_token){
+          s={
+            access_token:d.access_token,
+            refresh_token:d.refresh_token,
+            expires_in:d.expires_in,
+            token_type:d.token_type||'bearer',
+            user:d.user
+          };
+          saveStored(s);
+          emit('SIGNED_IN',s);
+        }
+        return {data:{session:s,user:d.user||d},error:null};
+      }catch(e){
+        return {data:null,error:{message:e.message||String(e)}};
       }
-      return {data:{session:s,user:d.user||d},error:null};
     },
     async signOut(){
       try{
